@@ -57,6 +57,7 @@ from typing import Dict, Final, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+import polars as pl
 
 from av2.evaluation.detection.constants import NUM_DECIMALS, MetricNames, TruePositiveErrorNames
 from av2.evaluation.detection.utils import (
@@ -114,22 +115,16 @@ def evaluate(
             "Please set `dataset_directory` to the split root, e.g. av2/sensor/val."
         )
 
+    # Filter the selected categories.
+    dts = dts[dts["category"].isin(cfg.categories)]
+    gts = gts[gts["category"].isin(cfg.categories)]
+
     # Sort both the detections and annotations by lexicographic order for grouping.
     dts = dts.sort_values(list(UUID_COLUMN_NAMES))
     gts = gts.sort_values(list(UUID_COLUMN_NAMES))
 
-    dts_npy: NDArrayFloat = dts[list(DTS_COLUMN_NAMES)].to_numpy()
-    gts_npy: NDArrayFloat = gts[list(GTS_COLUMN_NAMES)].to_numpy()
-
-    dts_uuids: List[str] = dts[list(UUID_COLUMN_NAMES)].to_numpy().tolist()
-    gts_uuids: List[str] = gts[list(UUID_COLUMN_NAMES)].to_numpy().tolist()
-
-    # We merge the unique identifier -- the tuple of ("log_id", "timestamp_ns", "category")
-    # into a single string to optimize the subsequent grouping operation.
-    # `groupby_mapping` produces a mapping from the uuid to the group of detections / annotations
-    # which fall into that group.
-    uuid_to_dts = groupby([":".join(map(str, x)) for x in dts_uuids], dts_npy)
-    uuid_to_gts = groupby([":".join(map(str, x)) for x in gts_uuids], gts_npy)
+    uuid_to_dts = pl.DataFrame(dts).partition_by(UUID_COLUMN_NAMES, as_dict=True, maintain_order=True)
+    uuid_to_gts = pl.DataFrame(gts).partition_by(UUID_COLUMN_NAMES, as_dict=True, maintain_order=True)
 
     log_id_to_avm: Optional[Dict[str, ArgoverseStaticMap]] = None
     log_id_to_timestamped_poses: Optional[Dict[str, TimestampedCitySE3EgoPoses]] = None
@@ -143,15 +138,15 @@ def evaluate(
     args_list: List[Tuple[NDArrayFloat, NDArrayFloat, DetectionCfg, Optional[ArgoverseStaticMap], Optional[SE3]]] = []
     uuids = sorted(uuid_to_dts.keys() | uuid_to_gts.keys())
     for uuid in uuids:
-        log_id, timestamp_ns, _ = uuid.split(":")
+        log_id, timestamp_ns, _ = uuid
         args: Tuple[NDArrayFloat, NDArrayFloat, DetectionCfg, Optional[ArgoverseStaticMap], Optional[SE3]]
 
         sweep_dts: NDArrayFloat = np.zeros((0, 10))
         sweep_gts: NDArrayFloat = np.zeros((0, 10))
         if uuid in uuid_to_dts:
-            sweep_dts = uuid_to_dts[uuid]
+            sweep_dts = uuid_to_dts[uuid][list(DTS_COLUMN_NAMES)].to_numpy()
         if uuid in uuid_to_gts:
-            sweep_gts = uuid_to_gts[uuid]
+            sweep_gts = uuid_to_gts[uuid][list(DTS_COLUMN_NAMES)].to_numpy()
 
         args = sweep_dts, sweep_gts, cfg, None, None
         if log_id_to_avm is not None and log_id_to_timestamped_poses is not None:
