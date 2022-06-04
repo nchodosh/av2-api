@@ -64,7 +64,6 @@ from av2.evaluation.detection.utils import (
     DetectionCfg,
     accumulate,
     compute_average_precision,
-    groupby,
     load_mapped_avm_and_egoposes,
 )
 from av2.geometry.se3 import SE3
@@ -123,8 +122,12 @@ def evaluate(
     dts = dts.sort_values(list(UUID_COLUMN_NAMES))
     gts = gts.sort_values(list(UUID_COLUMN_NAMES))
 
-    uuid_to_dts = pl.DataFrame(dts).partition_by(UUID_COLUMN_NAMES, as_dict=True, maintain_order=True)
-    uuid_to_gts = pl.DataFrame(gts).partition_by(UUID_COLUMN_NAMES, as_dict=True, maintain_order=True)
+    uuid_to_dts: Dict[Tuple[str, str, str], pl.DataFrame] = pl.DataFrame(dts).partition_by(
+        list(UUID_COLUMN_NAMES), as_dict=True, maintain_order=True
+    )
+    uuid_to_gts: Dict[Tuple[str, str, str], pl.DataFrame] = pl.DataFrame(gts).partition_by(
+        list(UUID_COLUMN_NAMES), as_dict=True, maintain_order=True
+    )
 
     log_id_to_avm: Optional[Dict[str, ArgoverseStaticMap]] = None
     log_id_to_timestamped_poses: Optional[Dict[str, TimestampedCitySE3EgoPoses]] = None
