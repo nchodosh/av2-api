@@ -84,6 +84,9 @@ UUID_COLUMN_NAMES: Final[Tuple[str, ...]] = (
 logger = logging.getLogger(__name__)
 
 
+JobType = List[Tuple[NDArrayFloat, NDArrayFloat, DetectionCfg, Optional[ArgoverseStaticMap], Optional[SE3]]]
+
+
 def evaluate(
     dts: pd.DataFrame,
     gts: pd.DataFrame,
@@ -114,18 +117,17 @@ def evaluate(
             "Please set `dataset_directory` to the split root, e.g. av2/sensor/val."
         )
 
-    # Filter the selected categories.
-    dts = dts[dts["category"].isin(cfg.categories)]
-    gts = gts[gts["category"].isin(cfg.categories)]
+    dts = pl.from_pandas(dts)
+    gts = pl.from_pandas(gts)
 
-    # Sort both the detections and annotations by lexicographic order for grouping.
-    dts = dts.sort_values(list(UUID_COLUMN_NAMES))
-    gts = gts.sort_values(list(UUID_COLUMN_NAMES))
+    expr = pl.col(["category"]).is_in(list(cfg.categories)).sort_by(list(UUID_COLUMN_NAMES))
+    dts = dts.with_columns(expr)
+    gts = gts.with_columns(expr)
 
-    uuid_to_dts: Dict[Tuple[str, str, str], pl.DataFrame] = pl.DataFrame(dts).partition_by(
+    uuid_to_dts: Dict[Tuple[str, str, str], pl.DataFrame] = dts.partition_by(
         list(UUID_COLUMN_NAMES), as_dict=True, maintain_order=True
     )
-    uuid_to_gts: Dict[Tuple[str, str, str], pl.DataFrame] = pl.DataFrame(gts).partition_by(
+    uuid_to_gts: Dict[Tuple[str, str, str], pl.DataFrame] = gts.partition_by(
         list(UUID_COLUMN_NAMES), as_dict=True, maintain_order=True
     )
 
@@ -135,14 +137,14 @@ def evaluate(
     # Load maps and egoposes if roi-pruning is enabled.
     if cfg.eval_only_roi_instances and cfg.dataset_dir is not None:
         logger.info("Loading maps and egoposes ...")
-        log_ids: List[str] = gts.loc[:, "log_id"].unique().tolist()
+        log_ids: List[str] = gts["log_id"].unique().tolist()
         log_id_to_avm, log_id_to_timestamped_poses = load_mapped_avm_and_egoposes(log_ids, cfg.dataset_dir)
 
-    args_list: List[Tuple[NDArrayFloat, NDArrayFloat, DetectionCfg, Optional[ArgoverseStaticMap], Optional[SE3]]] = []
+    args_list: JobType = []
     uuids = sorted(uuid_to_dts.keys() | uuid_to_gts.keys())
     for uuid in uuids:
         log_id, timestamp_ns, _ = uuid
-        args: Tuple[NDArrayFloat, NDArrayFloat, DetectionCfg, Optional[ArgoverseStaticMap], Optional[SE3]]
+        args: JobType
 
         sweep_dts: NDArrayFloat = np.zeros((0, 10))
         sweep_gts: NDArrayFloat = np.zeros((0, 10))
@@ -166,24 +168,26 @@ def evaluate(
         raise RuntimeError("Accumulation has failed! Please check the integrity of your detections and annotations.")
     dts_list, gts_list = zip(*outputs)
 
-    METRIC_COLUMN_NAMES = cfg.affinity_thresholds_m + TP_ERROR_COLUMNS + ("is_evaluated",)
+    METRIC_COLUMN_NAMES = tuple(map(str, cfg.affinity_thresholds_m)) + TP_ERROR_COLUMNS + ("is_evaluated",)
     dts_metrics: NDArrayFloat = np.concatenate(dts_list)
     gts_metrics: NDArrayFloat = np.concatenate(gts_list)
-    dts.loc[:, METRIC_COLUMN_NAMES] = dts_metrics
-    gts.loc[:, METRIC_COLUMN_NAMES] = gts_metrics
+
+    dts[list(METRIC_COLUMN_NAMES)] = dts_metrics
+    gts[list(METRIC_COLUMN_NAMES)] = gts_metrics
 
     # Compute summary metrics.
     metrics = summarize_metrics(dts, gts, cfg)
-    metrics.loc["AVERAGE_METRICS"] = metrics.mean()
-    metrics = metrics.round(NUM_DECIMALS)
-    return dts, gts, metrics
+    means = metrics.mean()
+    means[0, "category"] = "AVERAGE_METRICS"
+    metrics = metrics.vstack(means)
+    return dts.to_pandas(), gts.to_pandas(), metrics.to_pandas().round(NUM_DECIMALS).set_index("category")
 
 
 def summarize_metrics(
-    dts: pd.DataFrame,
-    gts: pd.DataFrame,
+    dts: pl.DataFrame,
+    gts: pl.DataFrame,
     cfg: DetectionCfg,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Calculate and print the 3D object detection metrics.
 
     Args:
@@ -197,34 +201,36 @@ def summarize_metrics(
     # Sample recall values in the [0, 1] interval.
     recall_interpolated: NDArrayFloat = np.linspace(0, 1, cfg.num_recall_samples, endpoint=True)
 
-    # Initialize the summary metrics.
-    summary = pd.DataFrame(
-        {s.value: cfg.metrics_defaults[i] for i, s in enumerate(tuple(MetricNames))}, index=cfg.categories
-    )
-
-    average_precisions = pd.DataFrame({t: 0.0 for t in cfg.affinity_thresholds_m}, index=cfg.categories)
+    default_values_list = []
+    average_precisions_list = []
     for category in cfg.categories:
-        # Find detections that have the current category.
-        is_category_dts = dts["category"] == category
+        values = {"category": category} | {s.value: cfg.metrics_defaults[i] for i, s in enumerate(tuple(MetricNames))}
+        default_values_list.append(values)
 
-        # Only keep detections if they match the category and have NOT been filtered.
-        is_valid_dts = np.logical_and(is_category_dts, dts["is_evaluated"])
+        ap_values = {"category": category} | {str(t): 0.0 for t in cfg.affinity_thresholds_m}
+        average_precisions_list.append(ap_values)
+
+    # Initialize the summary metrics.
+    summary = pl.DataFrame(default_values_list)
+    average_precisions = pl.DataFrame(average_precisions_list)
+    for i, category in enumerate(cfg.categories):
+
+        is_valid_dts = (pl.col("category") == category) & (pl.col("is_evaluated").cast(bool))
 
         # Get valid detections and sort them in descending order.
-        category_dts = dts.loc[is_valid_dts].sort_values(by="score", ascending=False).reset_index(drop=True)
+        category_dts = dts.with_columns(is_valid_dts).sort(by="score", reverse=True)
 
-        # Find annotations that have the current category.
-        is_category_gts = gts["category"] == category
+        is_valid_gts = (pl.col("category") == category) & (pl.col("is_evaluated").cast(bool))
+        gts = gts[is_valid_gts]
 
-        # Compute number of ground truth annotations.
-        num_gts = gts.loc[is_category_gts, "is_evaluated"].sum()
+        num_gts = len(gts)
 
         # Cannot evaluate without ground truth information.
         if num_gts == 0:
             continue
 
         for affinity_threshold_m in cfg.affinity_thresholds_m:
-            true_positives: NDArrayBool = category_dts[affinity_threshold_m].astype(bool).to_numpy()
+            true_positives: NDArrayBool = category_dts[str(affinity_threshold_m)].to_numpy().astype(bool)
 
             # Continue if there aren't any true positives.
             if len(true_positives) == 0:
@@ -234,14 +240,14 @@ def summarize_metrics(
             threshold_average_precision, _ = compute_average_precision(true_positives, recall_interpolated, num_gts)
 
             # Record the average precision.
-            average_precisions.loc[category, affinity_threshold_m] = threshold_average_precision
+            average_precisions[i, str(affinity_threshold_m)] = threshold_average_precision
 
-        mean_average_precisions: NDArrayFloat = average_precisions.loc[category].to_numpy().mean()
+        mean_average_precisions: NDArrayFloat = average_precisions[i, 1:].to_numpy().mean(axis=-1)
 
         # Select only the true positives for each instance.
         middle_idx = len(cfg.affinity_thresholds_m) // 2
         middle_threshold = cfg.affinity_thresholds_m[middle_idx]
-        is_tp_t = category_dts[middle_threshold].to_numpy().astype(bool)
+        is_tp_t = category_dts[str(middle_threshold)].to_numpy().astype(bool)
 
         # Initialize true positive metrics.
         tp_errors: NDArrayFloat = np.array(cfg.tp_normalization_terms)
@@ -252,14 +258,18 @@ def summarize_metrics(
         # If true positives exist, compute the metrics.
         if has_true_positives:
             tp_error_cols = [str(x.value) for x in TruePositiveErrorNames]
-            tp_errors = category_dts.loc[is_tp_t, tp_error_cols].to_numpy().mean(axis=0)
+            tp_errors = category_dts[is_tp_t, tp_error_cols].to_numpy().mean(axis=0)
 
         # Convert errors to scores.
         tp_scores = 1 - np.divide(tp_errors, cfg.tp_normalization_terms)
 
         # Compute Composite Detection Score (CDS).
         cds = mean_average_precisions * np.mean(tp_scores)
-        summary.loc[category] = np.array([mean_average_precisions, *tp_errors, cds])
+        summary[i, "AP"] = mean_average_precisions
+        summary[i, "ATE"] = tp_errors[0]
+        summary[i, "ASE"] = tp_errors[1]
+        summary[i, "AOE"] = tp_errors[2]
+        summary[i, "CDS"] = cds
 
     # Return the summary.
     return summary
