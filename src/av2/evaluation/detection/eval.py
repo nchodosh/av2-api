@@ -120,9 +120,9 @@ def evaluate(
     dts = pl.from_pandas(dts)
     gts = pl.from_pandas(gts)
 
-    expr = pl.col(["category"]).is_in(list(cfg.categories)).sort_by(list(UUID_COLUMN_NAMES))
-    dts = dts.with_columns(expr)
-    gts = gts.with_columns(expr)
+    expr = pl.col(["category"]).is_in(list(cfg.categories))
+    dts = dts.filter(expr).sort(list(UUID_COLUMN_NAMES))
+    gts = gts.filter(expr).sort(list(UUID_COLUMN_NAMES))
 
     uuid_to_dts: Dict[Tuple[str, str, str], pl.DataFrame] = dts.partition_by(
         list(UUID_COLUMN_NAMES), as_dict=True, maintain_order=True
@@ -137,7 +137,7 @@ def evaluate(
     # Load maps and egoposes if roi-pruning is enabled.
     if cfg.eval_only_roi_instances and cfg.dataset_dir is not None:
         logger.info("Loading maps and egoposes ...")
-        log_ids: List[str] = gts["log_id"].unique().tolist()
+        log_ids: List[str] = gts["log_id"].unique().to_list()
         log_id_to_avm, log_id_to_timestamped_poses = load_mapped_avm_and_egoposes(log_ids, cfg.dataset_dir)
 
     args_list: JobType = []
@@ -151,7 +151,7 @@ def evaluate(
         if uuid in uuid_to_dts:
             sweep_dts = uuid_to_dts[uuid][list(DTS_COLUMN_NAMES)].to_numpy()
         if uuid in uuid_to_gts:
-            sweep_gts = uuid_to_gts[uuid][list(DTS_COLUMN_NAMES)].to_numpy()
+            sweep_gts = uuid_to_gts[uuid][list(GTS_COLUMN_NAMES)].to_numpy()
 
         args = sweep_dts, sweep_gts, cfg, None, None
         if log_id_to_avm is not None and log_id_to_timestamped_poses is not None:
@@ -172,6 +172,12 @@ def evaluate(
     dts_metrics: NDArrayFloat = np.concatenate(dts_list)
     gts_metrics: NDArrayFloat = np.concatenate(gts_list)
 
+    # dts_metrics = pl.DataFrame(data=dts_metrics, columns=list(METRIC_COLUMN_NAMES))
+    # gts_metrics = pl.DataFrame(data=gts_metrics, columns=list(METRIC_COLUMN_NAMES))
+
+    # breakpoint()
+    # dts = pl.concat([dts, dts_metrics], how="horizontal")
+    # gts = pl.concat([gts, gts_metrics], how="horizontal")
     dts[list(METRIC_COLUMN_NAMES)] = dts_metrics
     gts[list(METRIC_COLUMN_NAMES)] = gts_metrics
 
