@@ -172,12 +172,6 @@ def evaluate(
     dts_metrics: NDArrayFloat = np.concatenate(dts_list)
     gts_metrics: NDArrayFloat = np.concatenate(gts_list)
 
-    # dts_metrics = pl.DataFrame(data=dts_metrics, columns=list(METRIC_COLUMN_NAMES))
-    # gts_metrics = pl.DataFrame(data=gts_metrics, columns=list(METRIC_COLUMN_NAMES))
-
-    # breakpoint()
-    # dts = pl.concat([dts, dts_metrics], how="horizontal")
-    # gts = pl.concat([gts, gts_metrics], how="horizontal")
     dts[list(METRIC_COLUMN_NAMES)] = dts_metrics
     gts[list(METRIC_COLUMN_NAMES)] = gts_metrics
 
@@ -220,16 +214,13 @@ def summarize_metrics(
     summary = pl.DataFrame(default_values_list)
     average_precisions = pl.DataFrame(average_precisions_list)
     for i, category in enumerate(cfg.categories):
-
         is_valid_dts = (pl.col("category") == category) & (pl.col("is_evaluated").cast(bool))
 
         # Get valid detections and sort them in descending order.
-        category_dts = dts.with_columns(is_valid_dts).sort(by="score", reverse=True)
+        category_dts = dts.filter(is_valid_dts).sort(by="score", reverse=True)
 
         is_valid_gts = (pl.col("category") == category) & (pl.col("is_evaluated").cast(bool))
-        gts = gts[is_valid_gts]
-
-        num_gts = len(gts)
+        num_gts = len(gts.filter(is_valid_gts))
 
         # Cannot evaluate without ground truth information.
         if num_gts == 0:
