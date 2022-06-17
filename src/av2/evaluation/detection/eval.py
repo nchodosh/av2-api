@@ -117,8 +117,8 @@ def evaluate(
             "Please set `dataset_directory` to the split root, e.g. av2/sensor/val."
         )
 
-    dts = pl.from_pandas(dts)
-    gts = pl.from_pandas(gts)
+    dts: pl.DataFrame = pl.from_pandas(dts)
+    gts: pl.DataFrame = pl.from_pandas(gts)
 
     expr = pl.col(["category"]).is_in(list(cfg.categories))
     dts = dts.filter(expr).sort(list(UUID_COLUMN_NAMES))
@@ -149,9 +149,9 @@ def evaluate(
         sweep_dts: NDArrayFloat = np.zeros((0, 10))
         sweep_gts: NDArrayFloat = np.zeros((0, 10))
         if uuid in uuid_to_dts:
-            sweep_dts = uuid_to_dts[uuid][list(DTS_COLUMN_NAMES)].to_numpy()
+            sweep_dts = uuid_to_dts[uuid][DTS_COLUMN_NAMES].to_numpy()
         if uuid in uuid_to_gts:
-            sweep_gts = uuid_to_gts[uuid][list(GTS_COLUMN_NAMES)].to_numpy()
+            sweep_gts = uuid_to_gts[uuid][GTS_COLUMN_NAMES].to_numpy()
 
         args = sweep_dts, sweep_gts, cfg, None, None
         if log_id_to_avm is not None and log_id_to_timestamped_poses is not None:
@@ -160,12 +160,7 @@ def evaluate(
             args = sweep_dts, sweep_gts, cfg, avm, city_SE3_ego
         args_list.append(args)
 
-    logger.info("Starting evaluation ...")
-    with get_context("spawn").Pool(processes=n_jobs) as p:
-        outputs: Optional[List[Tuple[NDArrayFloat, NDArrayFloat]]] = p.starmap(accumulate, args_list)
-
-    if outputs is None:
-        raise RuntimeError("Accumulation has failed! Please check the integrity of your detections and annotations.")
+    outputs = [accumulate(*x) for x in args_list]
     dts_list, gts_list = zip(*outputs)
 
     METRIC_COLUMN_NAMES = tuple(map(str, cfg.affinity_thresholds_m)) + TP_ERROR_COLUMNS + ("is_evaluated",)
