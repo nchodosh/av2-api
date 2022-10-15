@@ -23,7 +23,7 @@ from av2.utils.typing import NDArrayFloat, PathType
 from .utils import QUAT_WXYZ_FIELDS, Annotations, Lidar, Sweep, prevent_fsspec_deadlock, query_pose, read_feather
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__file__)
+logger = logging.getLogger(__name__)
 
 XYZ_FIELDS: Final[Tuple[str, str, str]] = ("x", "y", "z")
 LIDAR_GLOB_PATTERN: Final[str] = "sensors/lidar/*.feather"
