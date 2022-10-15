@@ -2,13 +2,14 @@
 
 import logging
 
-logger = logging.Logger(__file__)
+logger = logging.getLogger(__name__)
 
 try:
     import torch.multiprocessing as mp
 
-    logging.info("Setting multiprocessing start method to forkserver.")
+    if mp.get_start_method() != "forkserver":
+        logging.warning("Setting multiprocessing start method to forkserver to avoid deadlocking.")
+        mp.set_start_method("forkserver", force=True)
     mp.set_forkserver_preload(["polars"])
-    mp.set_start_method("forkserver", force=True)
 except ImportError as _:
     logger.error("Please install Pytorch to use this module.")
