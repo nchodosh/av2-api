@@ -286,4 +286,4 @@ def read_feather(path: PathType) -> pl.DataFrame:
         The feather file as a `polars` dataframe.
     """
     with path.open("rb") as f:
-        return pl.read_ipc(f, use_pyarrow=False, memory_map=True)
+        return pl.read_ipc(f, memory_map=True)

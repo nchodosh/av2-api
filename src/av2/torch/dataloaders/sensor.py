@@ -26,9 +26,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__file__)
 
 XYZ_FIELDS: Final[Tuple[str, str, str]] = ("x", "y", "z")
-
 LIDAR_GLOB_PATTERN: Final[str] = "sensors/lidar/*.feather"
-
 
 pl.Config.with_columns_kwargs = True
 
