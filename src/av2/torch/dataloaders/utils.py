@@ -6,7 +6,7 @@ import itertools
 import sys
 from dataclasses import dataclass
 from enum import Enum, unique
-from typing import Final, Tuple
+from typing import Final, Optional, Tuple
 
 import fsspec.asyn
 import numpy as np
@@ -203,7 +203,7 @@ class Lidar:
 class Sweep:
     """Stores the annotations and lidar for one sweep."""
 
-    annotations: Annotations
+    annotations: Optional[Annotations]
     lidar: Lidar
     sweep_uuid: Tuple[str, int]
 

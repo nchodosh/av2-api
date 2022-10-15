@@ -13,8 +13,9 @@ from typing import Any, Final, ItemsView, List, Optional, Tuple
 import joblib
 import numpy as np
 import polars as pl
-from polars.exceptions import ArrowError
+from filelock import FileLock
 from torch.utils.data import Dataset
+from upath import UPath
 
 from av2.geometry.geometry import quat_to_mat
 from av2.utils.typing import NDArrayFloat, PathType
@@ -44,7 +45,8 @@ class Av2(Dataset[Sweep]):
     """Pytorch dataloader for the sensor dataset.
 
     Args:
-        dataset_dir: Path to the dataset directory.
+        root_dir: Path to the dataset directory.
+        dataset_name: Dataset name.
         split_name: Name of the dataset split.
         min_annotation_range: Min Euclidean distance between the egovehicle origin and the annotation cuboid centers.
         max_annotation_range: Max Euclidean distance between the egovehicle origin and the annotation cuboid centers.
@@ -54,21 +56,33 @@ class Av2(Dataset[Sweep]):
         file_caching_mode: File caching mode.
     """
 
-    dataset_dir: PathType
+    root_dir: PathType
+    dataset_name: str
     split_name: str
     min_annotation_range: float = 0.0
     max_annotation_range: float = inf
     min_lidar_range: float = 0.0
     max_lidar_range: float = inf
+    min_interior_pts: int = 0
     num_accumulated_sweeps: int = 1
     file_caching_mode: Optional[FileCachingMode] = None
     file_index: List[Tuple[str, int]] = field(init=False)
+    with_annotations: bool = False
 
     def __post_init__(self) -> None:
         """Build the file index."""
         prevent_fsspec_deadlock()
         self._build_file_index()
         self._log_dataloader_configuration()
+
+    def __repr__(self) -> str:
+        """Dataloader info."""
+        info = "Dataloader configuration settings:\n"
+        for key, value in sorted(self.items()):
+            if key == "file_index":
+                continue
+            info += f"\t{key}: {value}\n"
+        return info
 
     def items(self) -> ItemsView[str, Any]:
         """Return the attribute_name, attribute pairs for the dataloader."""
@@ -77,12 +91,12 @@ class Av2(Dataset[Sweep]):
     @property
     def file_caching_dir(self) -> PathType:
         """File caching directory."""
-        return Path.home() / ".cache" / "av2" / self.split_name
+        return Path("/") / "tmp" / "cache" / "av2" / self.dataset_name / self.split_name
 
     @property
     def split_dir(self) -> PathType:
         """Sensor dataset split directory."""
-        return self.dataset_dir / self.split_name
+        return UPath(self.root_dir) / self.dataset_name / self.split_name
 
     def _log_dataloader_configuration(self) -> None:
         """Log the dataloader configuration."""
@@ -140,23 +154,26 @@ class Av2(Dataset[Sweep]):
         Returns:
             Sweep object containing annotations and lidar.
         """
-        return Sweep(
-            annotations=self.read_annotations(index), lidar=self.read_lidar(index), sweep_uuid=self.sweep_uuid(index)
-        )
+        annotations = None
+        if self.with_annotations:
+            annotations = self.read_annotations(index)
+
+        lidar = self.read_lidar(index)
+        sweep_uuid = self.sweep_uuid(index)
+        return Sweep(annotations=annotations, lidar=lidar, sweep_uuid=sweep_uuid)
 
     def _build_file_index(self) -> None:
         """Build the file index for the dataset."""
-
-        file_cache_path = self.file_caching_dir / f"file_index_{self.split_name}.feather"
+        file_cache_path = self.file_caching_dir.parent / f"file_index_{self.split_name}.feather"
         if file_cache_path.exists():
-            file_index = read_feather(file_cache_path).to_numpy().tolist()
+            file_index = pl.read_ipc(file_cache_path).to_numpy().tolist()
         else:
             logger.info("Building file index. This may take a moment ...")
-
             log_dirs = sorted(self.split_dir.glob("*"))
             path_lists: Optional[List[List[Tuple[str, int]]]] = joblib.Parallel(n_jobs=-1, backend="multiprocessing")(
                 joblib.delayed(Av2._file_index_helper)(log_dir, LIDAR_GLOB_PATTERN) for log_dir in log_dirs
             )
+            logger.info("File indexing complete.")
             if path_lists is None:
                 raise RuntimeError("Error scanning the dataset directory!")
             if len(path_lists) == 0:
@@ -164,7 +181,8 @@ class Av2(Dataset[Sweep]):
 
             file_index = sorted(itertools.chain.from_iterable(path_lists))
             self.file_caching_dir.mkdir(parents=True, exist_ok=True)
-            pl.DataFrame(file_index, columns=["log_id", "timestamp_ns"]).write_ipc(file_cache_path)
+            dataframe = pl.DataFrame(file_index, columns=["log_id", "timestamp_ns"])
+            dataframe.write_ipc(file_cache_path)
         self.file_index = file_index
 
     def read_annotations(self, index: int) -> Annotations:
@@ -193,9 +211,9 @@ class Av2(Dataset[Sweep]):
         distance = np.linalg.norm(dataframe.select(pl.col(["tx_m", "ty_m", "tz_m"])).to_numpy(), axis=-1)
         dataframe = pl.concat([dataframe, pl.from_numpy(distance, columns=["distance"])], how="horizontal")
         dataframe = dataframe.filter(
-            (pl.col("num_interior_pts") > 0)
+            (pl.col("num_interior_pts") > self.min_interior_pts)
             & (pl.col("timestamp_ns") == timestamp_ns)
-            & (pl.col("distance") > self.min_annotation_range)
+            & (pl.col("distance") >= self.min_annotation_range)
             & (pl.col("distance") <= self.max_annotation_range)
         )
         annotations = Annotations(dataframe)
@@ -313,7 +331,7 @@ class Av2(Dataset[Sweep]):
         dataframe_distance = pl.from_numpy(distance, columns=["distance"])
         dataframe = pl.concat([dataframe, dataframe_distance], how="horizontal")
         dataframe = dataframe.filter(
-            (pl.col("distance") > self.min_lidar_range) & (pl.col("distance") <= self.max_lidar_range)
+            (pl.col("distance") >= self.min_lidar_range) & (pl.col("distance") <= self.max_lidar_range)
         )
         dataframe = dataframe.sort(["timedelta_ns", "distance"])
         return dataframe
@@ -329,6 +347,7 @@ class Av2(Dataset[Sweep]):
         Returns:
             The list of keys within the glob context.
         """
+        prevent_fsspec_deadlock()
         return [(key.parts[-4], int(key.stem)) for key in root_dir.glob(file_pattern)]
 
     def _read_frame(self, src_path: PathType, file_caching_path: PathType) -> pl.DataFrame:
@@ -343,15 +362,17 @@ class Av2(Dataset[Sweep]):
         """
         if self.file_caching_mode == FileCachingMode.DISK:
             file_caching_path.parent.mkdir(parents=True, exist_ok=True)
-            if not file_caching_path.exists():
-                dataframe = read_feather(src_path)
-                dataframe.write_ipc(file_caching_path)
-            else:
-                try:
-                    dataframe = read_feather(file_caching_path)
-                except ArrowError:
+            lock_name = str(file_caching_path) + ".lock"
+            with FileLock(lock_name):
+                if not file_caching_path.exists():
                     dataframe = read_feather(src_path)
                     dataframe.write_ipc(file_caching_path)
+                else:
+                    try:
+                        dataframe = read_feather(file_caching_path)
+                    except Exception as _:
+                        dataframe = read_feather(src_path)
+                        dataframe.write_ipc(file_caching_path)
         else:
             dataframe = read_feather(src_path)
         return dataframe
