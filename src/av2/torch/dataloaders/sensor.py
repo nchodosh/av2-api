@@ -361,7 +361,8 @@ class Av2(Dataset[Sweep]):
         if self.file_caching_mode == FileCachingMode.DISK:
             file_caching_path.parent.mkdir(parents=True, exist_ok=True)
             lock_name = str(file_caching_path) + ".lock"
-            with FileLock(lock_name):
+            lock = FileLock(lock_name)
+            with lock:
                 if not file_caching_path.exists():
                     dataframe = read_feather(src_path)
                     dataframe.write_ipc(file_caching_path)
