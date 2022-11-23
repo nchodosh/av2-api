@@ -50,8 +50,11 @@ class Av2(Dataset[Sweep]):
         max_annotation_range: Max Euclidean distance between the egovehicle origin and the annotation cuboid centers.
         min_lidar_range: Min Euclidean distance between the egovehicle origin and the lidar points.
         max_lidar_range: Max Euclidean distance between the egovehicle origin and the lidar points.
+        min_interior_pts: Min number of points inside each annotation.
         num_accumulated_sweeps: Number of temporally accumulated sweeps (accounting for egovehicle motion).
         file_caching_mode: File caching mode.
+        return_annotations: Boolean flag indicating whether to return annotations.
+        return_velocity_estimates: Boolean flag indicating whether to return annotations' velocity estimates.
     """
 
     root_dir: PathType
@@ -64,8 +67,10 @@ class Av2(Dataset[Sweep]):
     min_interior_pts: int = 0
     num_accumulated_sweeps: int = 1
     file_caching_mode: Optional[FileCachingMode] = None
+    return_annotations: bool = False
+    return_velocity_estimates: bool = False
+
     file_index: List[Tuple[str, int]] = field(init=False)
-    with_annotations: bool = False
 
     def __post_init__(self) -> None:
         """Build the file index."""
@@ -153,7 +158,7 @@ class Av2(Dataset[Sweep]):
             Sweep object containing annotations and lidar.
         """
         annotations = None
-        if self.with_annotations:
+        if self.return_annotations:
             annotations = self.read_annotations(index)
 
         lidar = self.read_lidar(index)
@@ -369,7 +374,7 @@ class Av2(Dataset[Sweep]):
                 else:
                     try:
                         dataframe = read_feather(file_caching_path)
-                    except Exception as _:
+                    except Exception:
                         dataframe = read_feather(src_path)
                         dataframe.write_ipc(file_caching_path)
         else:
