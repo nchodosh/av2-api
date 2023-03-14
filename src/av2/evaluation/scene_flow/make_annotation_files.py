@@ -40,7 +40,7 @@ if __name__ == '__main__':
         classes = datum[2].classes[mask].astype(np.uint8)
         dynamic = datum[2].dynamic[mask].astype(bool)
 
-        pc = datum[0].lidar.dataframe[['x', 'y', 'z']].to_numpy()
+        pc = datum[0].lidar.dataframe[['x', 'y', 'z']].to_numpy()[mask]
         close = ((np.abs(pc[:, 0]) <= 35) & (np.abs(pc[:, 1]) <= 35)).astype(bool)
 
         output = pd.DataFrame({'classes': classes,

@@ -8,11 +8,11 @@ def get_eval_subset(dataloader: SceneFlowDataloader):
 
 def get_eval_point_mask(datum: Tuple[Sweep, Sweep, Flow]):
     pcl = datum[0].lidar.as_tensor()
-    is_close =  (pcl[:, 0].abs() <= 50) & (pcl[:, 1].abs() <= 5)
+    is_close =  ((pcl[:, 0].abs() <= 50) & (pcl[:, 1].abs() <= 50)).numpy().astype(bool)
 
     if datum[0].is_ground is None:
         raise ValueError('Must have ground annotations loaded to determine eval mask')
 
-    return (is_close & ~datum[0].is_ground).numpy()
+    return (is_close & ~datum[0].is_ground).astype(bool)
                                 
                                 
