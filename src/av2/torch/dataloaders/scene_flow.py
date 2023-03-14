@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from math import inf
 from typing import Optional, Tuple, List
+from pathlib import Path
 import numpy as np
 
 import pandas as pd
@@ -28,16 +29,16 @@ class SceneFlowDataloader(Dataset[Tuple[Sweep, Sweep, Flow]]):
 
     Args:
         root_dir: Path to the dataset directory.
-        dataset_name: Dataset name.
-        split_name: Name of the dataset split.
-        num_accum_sweeps: Number of temporally accumulated sweeps (accounting for egovehicle motion).
+        dataset_name: Dataset name (e.g., "av2").
+        split_name: Name of the dataset split (e.g., "train").
+        num_accum_sweeps: Number of temporally accumulated sweeps (accounting for ego-vehicle motion).
         memory_mapped: Boolean flag indicating whether to memory map the dataframes.
     """
 
     root_dir: PathType
     dataset_name: str
     split_name: str
-    num_accum_sweeps: int = 1
+    num_accumulated_sweeps: int = 1
     memory_mapped: bool = False
 
     _backend: rust.Dataloader = field(init=False)
@@ -47,13 +48,13 @@ class SceneFlowDataloader(Dataset[Tuple[Sweep, Sweep, Flow]]):
         """Initialize Rust backend."""
         self._backend = rust.Dataloader(
             str(self.root_dir),
+            self.dataset_name,
             "sensor",
             self.split_name,
-            self.dataset_name,
-            self.num_accum_sweeps,
+            self.num_accumulated_sweeps,
             self.memory_mapped,
         )
-        self.data_dir = (self.root_dir / self.dataset_name) / self.split_name
+        self.data_dir = Path(self.root_dir) / self.dataset_name / 'sensor' / self.split_name
 
     @cached_property
     def file_index(self) -> pd.DataFrame:
@@ -71,24 +72,20 @@ class SceneFlowDataloader(Dataset[Tuple[Sweep, Sweep, Flow]]):
                 if current_log_id == next_log_id:
                     inds.append(i)
         return inds
-            
+    
+    def get_log_id(self, index: int) -> str:
+        return self.file_index.loc[index, ["log_id"]].item()
 
     def __getitem__(self, index: int) -> Tuple[Sweep, Sweep, Flow]:
         backend_index = self.index_map[index]
-        sweep = Sweep.from_rust(self._backend.get(backend_index))
-        next_sweep = Sweep.from_rust(self._backend.get(backend_index + 1))
-
         log = self.file_index.loc[index, ["log_id"]].item()
         log_map_dirpath = self.data_dir / log / "map"
         avm = ArgoverseStaticMap.from_map_dir(log_map_dirpath, build_raster=True)
 
-        pcl_city_1 = sweep.city_pose.SE3().transform_point_cloud(sweep.lidar.dataframe[['x', 'y', 'z']].numpy())
-        pcl_city_2 = next_sweep.city_pose.SE3().transform_point_cloud(next_sweep.lidar.dataframe[['x', 'y', 'z']].numpy())
-        sweep.is_ground = avm.get_ground_points_boolean(pcl_city_1).astype(np.uint8)
-        is_ground_1 = avm.get_ground_points_boolean(pcl_city_1)
 
+        sweep = Sweep.from_rust(self._backend.get(backend_index), avm=avm)
+        next_sweep = Sweep.from_rust(self._backend.get(backend_index+1), avm=avm)
 
-        
         flow = Flow.from_sweep_pair((sweep, next_sweep))
         return sweep, next_sweep, flow
     
@@ -99,7 +96,7 @@ class SceneFlowDataloader(Dataset[Tuple[Sweep, Sweep, Flow]]):
         """Iterate method for the dataloader."""
         return self
 
-    def __next__(self) -> Tuple[Sweep, Optional[Sweep]]:
+    def __next__(self) -> Tuple[Sweep, Sweep, Flow]:
         """Return a tuple of sweeps for scene flow."""
         if self._current_idx >= self.__len__():
             raise StopIteration

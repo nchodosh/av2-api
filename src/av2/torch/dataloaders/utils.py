@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from enum import Enum, unique
 from functools import cached_property
 from typing import Final, Optional, Tuple, List
-from av2.utils.typing import NDArrayByte, NDArrayFloat, NDArrayInt
+from av2.map.map_api import ArgoverseStaticMap
+from av2.utils.typing import NDArrayByte, NDArrayFloat, NDArrayBool
 
 import fsspec.asyn
 import numpy as np
@@ -141,14 +142,27 @@ class Sweep:
     city_pose: Pose
     lidar: Lidar
     sweep_uuid: Tuple[str, int]
-    is_ground: Optional[NDArrayByte] = None
+    is_ground: Optional[NDArrayBool] = None
 
     @classmethod
-    def from_rust(cls, sweep: rust.Sweep) -> Sweep:
-        annotations = Annotations(dataframe=sweep.annotations.to_pandas())
-        city_pose = Pose(dataframe=sweep.city_pose.to_pandas())
+    def from_rust(cls, sweep: rust.Sweep, avm: Optional[ArgoverseStaticMap]) -> Sweep:
+        if sweep.annotations is not None:
+            annotations = Annotations(dataframe=sweep.annotations.to_pandas())
+        else:
+            annotations = None
+
+        city_pose = Pose(dataframe=sweep.city_pose.to_pandas())            
+        if avm is not None:
+            pcl_ego = sweep.lidar[['x', 'y', 'z']].to_numpy()
+            pcl_city_1 = city_pose.SE3().transform_point_cloud(pcl_ego)
+            is_ground = avm.get_ground_points_boolean(pcl_city_1).astype(bool)
+        else:
+            is_ground = None
+            
+
         lidar = Lidar(dataframe=sweep.lidar.to_pandas())
-        return cls(annotations=annotations, city_pose=city_pose, lidar=lidar, sweep_uuid=sweep.sweep_uuid)
+        return cls(annotations=annotations, city_pose=city_pose, lidar=lidar, sweep_uuid=sweep.sweep_uuid,
+                   is_ground=is_ground)
 
 
 @dataclass(frozen=True)
@@ -186,8 +200,9 @@ class Flow:
     """
 
     flow: Optional[NDArrayFloat]
-    valid: Optional[NDArrayByte]
+    valid: Optional[NDArrayBool]
     classes: Optional[NDArrayByte]
+    dynamic: Optional[NDArrayBool]
     ego_motion: SE3
 
     def __len__(self) -> int:
@@ -199,7 +214,7 @@ class Flow:
         poses = [sweep.city_pose.SE3() for sweep in sweeps]
         ego1_SE3_ego0 = poses[1].inverse().compose(poses[0])
         if sweeps[0].annotations is None or sweeps[1].annotations is None:
-            return cls(flow=None, valid=None, classes=None, ego_motion=ego1_SE3_ego0)
+            return cls(flow=None, valid=None, classes=None, dynamic=None, ego_motion=ego1_SE3_ego0)
         else:
             annotations: List[Annotations] = [sweeps[0].annotations, sweeps[1].annotations]
         
@@ -211,11 +226,10 @@ class Flow:
         ego1_SE3_ego0.rotation = ego1_SE3_ego0.rotation.astype(np.float32)
         ego1_SE3_ego0.translation = ego1_SE3_ego0.translation.astype(np.float32)
         
-        flow = ego1_SE3_ego0.transform_point_cloud(pcs[0]) -  pcs[0]
-        # Convert to float32s
-        flow = flow.astype(np.float32)
+        rigid_flow = (ego1_SE3_ego0.transform_point_cloud(pcs[0]) -  pcs[0]).astype(np.float32)
+        flow = rigid_flow.copy()
         
-        valid = np.ones(len(pcs[0]), dtype=np.uint8)
+        valid = np.ones(len(pcs[0]), dtype=bool)
         classes = np.zeros(len(pcs[0]), dtype=np.uint8)
         
         
@@ -233,7 +247,10 @@ class Flow:
                 flow[obj_mask] = obj_flow.astype(np.float32)
             else:
                 valid[obj_mask] = 0
-        return cls(flow=flow, valid=valid, classes=classes, ego_motion=ego1_SE3_ego0)
+
+        dynamic = np.linalg.norm((flow - rigid_flow), axis=-1) >= 0.05
+        
+        return cls(flow=flow, valid=valid, classes=classes, dynamic=dynamic, ego_motion=ego1_SE3_ego0)
     
 
     
