@@ -2,7 +2,7 @@ from av2.torch.dataloaders.scene_flow import SceneFlowDataloader
 from av2.evaluation.scene_flow.utils import get_eval_subset, get_eval_point_mask
 from pathlib import Path
 import argparse
-from tqdm import tqdm
+from rich.progress import track
 import numpy as np
 import pandas as pd
 
@@ -28,7 +28,7 @@ if __name__ == '__main__':
     output_root.mkdir(exist_ok=True)
 
     eval_inds = get_eval_subset(dl)
-    for i in tqdm(eval_inds):
+    for i in track(eval_inds):
         datum = dl[i]
         if ((datum[2].flow is None) or (datum[2].valid is None)
             or (datum[2].classes is None) or (datum[2].dynamic is None)):
