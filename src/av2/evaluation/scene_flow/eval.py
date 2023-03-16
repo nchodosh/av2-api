@@ -189,7 +189,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    results = evaluate_directories(Path(args.annotations_root), Path(args.predictions_root))
+    results = results_to_dict(evaluate_directories(Path(args.annotations_root), Path(args.predictions_root)))
 
     for metric in sorted(results):
         print(f'{metric}: {results[metric]:.3f}')
