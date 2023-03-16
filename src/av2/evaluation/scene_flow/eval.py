@@ -51,7 +51,7 @@ def epe(pred, gt):
 def accuracy(pred, gt, threshold):
     l2_norm = np.sqrt(np.sum((pred - gt) ** 2, axis=-1))
     gt_norm = np.sqrt(np.sum(gt * gt, axis=-1))
-    relative_err = l2_norm / (gt_norm + 1e-20)
+    relative_err = l2_norm / (gt_norm + 1e-7)
     error_lt_5 = (l2_norm < threshold).astype(bool)
     relative_err_lt_5 = (relative_err < threshold).astype(bool)
     return  (error_lt_5 | relative_err_lt_5).astype(float)
@@ -66,8 +66,8 @@ def accuracy_relax(pred, gt):
 
 
 def angle_error(pred, gt):
-    unit_label = gt / np.linalg.norm(gt, axis=-1, keepdims=True)
-    unit_pred = pred / np.linalg.norm(pred, axis=-1, keepdims=True)
+    unit_label = gt / (np.linalg.norm(gt, axis=-1, keepdims=True) + 1e-7)
+    unit_pred = pred / (np.linalg.norm(pred, axis=-1, keepdims=True) + 1e-7)
     eps = 1e-7
     dot_product = np.clip(np.sum(unit_label * unit_pred, axis=-1), a_min=-1+eps, a_max=1-eps)
     dot_product[dot_product != dot_product] = 0  # Remove NaNs
@@ -127,7 +127,7 @@ def metrics(pred_flow, pred_dynamic, gt, classes, dynamic, close, valid, object_
 
 def evaluate_directories(annotations_root: Path, predictions_root: Path):
     results = []
-    annotation_files = annotations_root.rglob('*.feather')
+    annotation_files = list(annotations_root.rglob('*.feather'))
     for anno_file in track(annotation_files, description='Evaluating...'):
         gt = pd.read_feather(anno_file)
         name = anno_file.relative_to(annotations_root)
