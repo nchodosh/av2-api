@@ -66,7 +66,7 @@ def accuracy_relax(pred, gt):
 
 
 def angle_error(pred, gt):
-    with np.errstate(divide='raise'):
+    with np.errstate(all='raise'):
         try:
             unit_label = gt / (np.linalg.norm(gt, axis=-1, keepdims=True) + 1e-7)
             unit_pred = pred / (np.linalg.norm(pred, axis=-1, keepdims=True) + 1e-7)
