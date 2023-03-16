@@ -177,3 +177,16 @@ def results_to_dict(results_dataframe):
 
     
     return output
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(prog='eval',
+                                     description='Run a local scene flow evaluation on the val split')
+    parser.add_argument('prediction_root', type=str,
+                        help='path/to/predictions/')
+    parser.add_argument('annotations_root', type=str,
+                        help='path/to/annotation_files/')
+
+    args = parser.parse_args()
+
+    evaluate_directories(Path(args.annoatations_root), Path(args.predictions_root))
