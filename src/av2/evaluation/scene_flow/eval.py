@@ -70,11 +70,11 @@ def angle_error(pred, gt):
         try:
             unit_label = gt / (np.linalg.norm(gt, axis=-1, keepdims=True) + 1e-7)
             unit_pred = pred / (np.linalg.norm(pred, axis=-1, keepdims=True) + 1e-7)
+            eps = 1e-7
+            dot_product = np.clip(np.sum(unit_label * unit_pred, axis=-1), a_min=-1+eps, a_max=1-eps)
+            dot_product[dot_product != dot_product] = 0  # Remove NaNs
         except Exception as e:
             breakpoint()
-    eps = 1e-7
-    dot_product = np.clip(np.sum(unit_label * unit_pred, axis=-1), a_min=-1+eps, a_max=1-eps)
-    dot_product[dot_product != dot_product] = 0  # Remove NaNs
     return np.arccos(dot_product)
 
 def coutn(pred, gt):
