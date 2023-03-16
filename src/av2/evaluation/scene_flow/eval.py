@@ -189,4 +189,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    evaluate_directories(Path(args.annoatations_root), Path(args.predictions_root))
+    results = evaluate_directories(Path(args.annoatations_root), Path(args.predictions_root))
+
+    for metric in sorted(results):
+        print(f'{metric}: {results[metric]:.3d}')
