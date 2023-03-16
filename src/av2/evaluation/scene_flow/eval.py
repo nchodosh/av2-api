@@ -191,6 +191,6 @@ if __name__ == '__main__':
     results_df = evaluate_directories(Path(args.annotations_root), Path(args.predictions_root))
     results_dict = results_to_dict(results_df)
 
-    for metric in sorted(results):
-        print(f'{metric}: {results[metric]:.3f}')
+    for metric in sorted(results_dict):
+        print(f'{metric}: {results_dict[metric]:.3f}')
     breakpoint()
