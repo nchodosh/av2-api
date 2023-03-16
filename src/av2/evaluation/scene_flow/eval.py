@@ -9,6 +9,7 @@ from typing import Union, Dict, List, Iterator, Tuple, Optional
 from pathlib import Path
 import argparse
 from rich.progress import track
+np.seterr(all='warn')
 
 
 CATEGORY_MAP = {"ANIMAL":0, "ARTICULATED_BUS":1, "BICYCLE":2, "BICYCLIST":3, "BOLLARD":4,
@@ -66,8 +67,11 @@ def accuracy_relax(pred, gt):
 
 
 def angle_error(pred, gt):
-    unit_label = gt / (np.linalg.norm(gt, axis=-1, keepdims=True) + 1e-7)
-    unit_pred = pred / (np.linalg.norm(pred, axis=-1, keepdims=True) + 1e-7)
+    try:
+        unit_label = gt / (np.linalg.norm(gt, axis=-1, keepdims=True) + 1e-7)
+        unit_pred = pred / (np.linalg.norm(pred, axis=-1, keepdims=True) + 1e-7)
+    except Warning:
+        breakpoint()
     eps = 1e-7
     dot_product = np.clip(np.sum(unit_label * unit_pred, axis=-1), a_min=-1+eps, a_max=1-eps)
     dot_product[dot_product != dot_product] = 0  # Remove NaNs
