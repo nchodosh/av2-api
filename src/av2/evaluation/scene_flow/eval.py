@@ -1,3 +1,6 @@
+"""Argoverse 2.0 Scene Flow Evaluation
+"""
+
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -5,7 +8,7 @@ import pandas as pd
 from typing import Union, Dict, List, Iterator, Tuple, Optional
 from pathlib import Path
 import argparse
-from tqdm import tqdm
+from rich.progress import track
 
 
 CATEGORY_MAP = {"ANIMAL":0, "ARTICULATED_BUS":1, "BICYCLE":2, "BICYCLIST":3, "BOLLARD":4,
@@ -41,14 +44,13 @@ PED_CYC_VEH_ANI = {'Background': [-1],
                    'Vehicle': [CATEGORY_MAP[k] for k in VEHICLE_CATEGORIES],
                    'Animal': [CATEGORY_MAP[k] for k in ANIMAL_CATEGORIES]}
 
-Array = Union[np.ndarray, torch.Tensor]
-
+FLOW_COLS = ['flow_tx_m', 'flow_ty_m', 'flow_ty_m']
 def epe(pred, gt):
-    return torch.sqrt(torch.sum((pred - gt) ** 2, -1))
+    return np.sqrt(np.sum((pred - gt) ** 2, axis=-1))
 
 def accuracy(pred, gt, threshold):
-    l2_norm = torch.sqrt(torch.sum((pred - gt) ** 2, -1))
-    gt_norm = torch.sqrt(torch.sum(gt * gt, -1))
+    l2_norm = np.sqrt(np.sum((pred - gt) ** 2, axis=-1))
+    gt_norm = np.sqrt(np.sum(gt * gt, axis=-1))
     relative_err = l2_norm / (gt_norm + 1e-20)
     error_lt_5 = (l2_norm < threshold).bool()
     relative_err_lt_5 = (relative_err < threshold).bool()
@@ -63,24 +65,13 @@ def accuracy_relax(pred, gt):
     return accuracy(pred, gt, 0.10)
 
 
-def outliers(pred, gt):
-    l2_norm = torch.sqrt(torch.sum((pred - gt) ** 2, -1))
-    gt_norm = torch.sqrt(torch.sum(gt * gt, -1))
-    relative_err = l2_norm / (gt_norm + 1e-20)
-
-    l2_norm_gt_3 = (l2_norm > 0.3).bool()
-    relative_err_gt_10 = (relative_err > 0.1).bool()
-    return (l2_norm_gt_3 | relative_err_gt_10).float()
-
-
 def angle_error(pred, gt):
-    unit_label = gt / gt.norm(dim=-1, keepdim=True)
-    unit_pred = pred / pred.norm(dim=-1, keepdim=True)
+    unit_label = gt / np.linalg.norm(gt, axis=-1, keepdims=True)
+    unit_pred = pred / np.linalg.norm(pred, axis=-1, keepdims=True)
     eps = 1e-7
-    dot_product = (unit_label * unit_pred).sum(-1).clamp(min=-1+eps, max=1-eps)
+    dot_product = np.clip(np.sum(unit_label * unit_pred, axis=-1), a_min=-1+eps, a_max=1-eps)
     dot_product[dot_product != dot_product] = 0  # Remove NaNs
-    return torch.acos(dot_product)
-
+    return np.arccos(dot_product)
 
 def coutn(pred, gt):
     return torch.ones(len(pred))
@@ -99,12 +90,19 @@ def fn(pred, gt):
 
 
 FLOW_METRICS = {'EPE': epe, 'Accuracy Strict': accuracy_strict, 'Accuracy Relax': accuracy_relax,
-                'Outliers': outliers, 'Angle Error': angle_error}
+                'Angle Error': angle_error}
 SEG_METRICS = {'TP': tp, 'TN': tn, 'FP': fp, 'FN': fn}
 
 
-def metrics(pred_flow, pred_dynamic, gt, classes, dynamic, close, object_classes):
+def metrics(pred_flow, pred_dynamic, gt, classes, dynamic, close, valid, object_classes):
     results = []
+    pred_flow = pred_flow[valid]
+    pred_dynamic = pred_dynamic[valid]
+    gt = gt[valid]
+    classes = classes[valid]
+    dynamic = dynamic[valid]
+    close = close[valid]
+    
     for cls, class_idxs in object_classes.items():
         class_mask = classes == class_idxs[0]
         for i in class_idxs[1:]:
@@ -118,35 +116,39 @@ def metrics(pred_flow, pred_dynamic, gt, classes, dynamic, close, object_classes
                 pred_sub = pred_flow[mask]
                 result = [cls, motion, distance, cnt]
                 if cnt > 0:
-                    result += [FLOW_METRICS[m](pred_sub, gt_sub).mean().cpu().item() for m in FLOW_METRICS]
-                    result += [SEG_METRICS[m](pred_dynamic[mask], dynamic[mask]).cpu().item() for m in SEG_METRICS]
+                    result += [FLOW_METRICS[m](pred_sub, gt_sub).mean() for m in FLOW_METRICS]
+                    result += [SEG_METRICS[m](pred_dynamic[mask], dynamic[mask]) for m in SEG_METRICS]
                 else:
                     result += [np.nan for m in FLOW_METRICS]
                     result += [0 for m in SEG_METRICS]
                 results.append(result)
     return results
 
-def evaluate_iterator(annotations_root: Path, preds: Iterator[Tuple[str, Array, Array]]):
+
+def evaluate_directories(annotations_root: Path, predictions_root: Path):
     results = []
-    with h5py.File(annotation_file, 'r') as anno:
-        for name, pred, pred_dynamic in tqdm(preds):
-            gt = anno[name]
-            loss_breakdown = metrics(torch.from_numpy(pred),
-                                     torch.from_numpy(pred_dynamic),
-                                     torch.from_numpy(gt['flow'][()]),
-                                     torch.from_numpy(gt['classes'][()]),
-                                     torch.from_numpy(gt['dynamic'][()]),
-                                     torch.from_numpy(gt['close'][()]),
-                                     FOREGROUND_BACKGROUND)
-            results.extend([[name] + bd for bd in loss_breakdown])
+    annotation_files = annotations_root.rglob('*.feather')
+    for anno_file in track(annotation_files, description='Evaluating...'):
+        gt = pd.read_feather(anno_file)
+        name = anno_file.relative_to(annotations_root)
+        pred_file = predictions_root / name
+        if not pred_file.exists():
+            print(f'Warning: {str(name)} missing')
+            continue
+        pred = pd.read_feather(pred_file)
+        loss_breakdown = metrics(pred[FLOW_COLS].to_numpy(),
+                                 pred['dynamic'].to_numpy(),
+                                 gt[FLOW_COLS].to_numpy(),
+                                 gt['classes'].to_numpy(),
+                                 gt['dynamic'].to_numpy(),
+                                 gt['close'].to_numpy(),
+                                 gt['valid'].to_numpy(),
+                                 FOREGROUND_BACKGROUND)
+        results.extend([[str(name)] + bd for bd in loss_breakdown])
     df = pd.DataFrame(results, columns=['Example', 'Class', 'Motion', 'Distance', 'Count']
                       + list(FLOW_METRICS) + list(SEG_METRICS))
     return df
         
-def submission_iterator(submission_file):
-    with h5py.File(submission_file, 'r') as f:
-        for ex_name in f.keys():
-            yield ex_name, f[ex_name]['flow'][()], f[ex_name]['dynamic'][()]
 
 def results_to_dict(results_dataframe):
     output = {}
@@ -174,28 +176,4 @@ def results_to_dict(results_dataframe):
                                    output['EPE/Background/Static']) / 3
 
     
-    return output    
-
-def evaluate(test_annotation_file, user_submission_file, phase_codename, **kwargs):
-    print("Starting Evaluation.....")
-    """
-    Evaluates the submission for a particular challenge phase and returns score.
-
-    Args:
-
-        test_annotation_file: Path to test_annotation_file on the server, for argoverse challenge this is path to the dataset split folder
-        user_submission_file: Path to file submitted by the user, for argoverse challenge this is a zip file
-        phase_codename: Phase to which submission is made
-
-        `**kwargs`: keyword arguments that contains additional submission metadata.
-    """
-    output = {}
-    if phase_codename == "test_split":
-        print("Evaluating for Test Phase")
-        results_df = evaluate_iterator(test_annotation_file,
-                                       submission_iterator(user_submission_file))
-        output['result'] = [{'test_split': results_to_dict(results_df)}]
-        # To display the results in the result file
-        output["submission_result"] = output["result"][0]
-        print("Completed evaluation for Test Phase")
     return output
