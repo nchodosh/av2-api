@@ -54,7 +54,7 @@ def accuracy(pred, gt, threshold):
     relative_err = l2_norm / (gt_norm + 1e-7)
     error_lt_5 = (l2_norm < threshold).astype(bool)
     relative_err_lt_5 = (relative_err < threshold).astype(bool)
-    return  (error_lt_5 | relative_err_lt_5).astype(float)
+    return  (error_lt_5 | relative_err_lt_5).astype(np.float64)
 
 
 def accuracy_strict(pred, gt):
@@ -66,16 +66,11 @@ def accuracy_relax(pred, gt):
 
 
 def angle_error(pred, gt):
-    with np.errstate(all='raise'):
-        try:
-            unit_label = gt / (np.linalg.norm(gt, axis=-1, keepdims=True) + 1e-7)
-            unit_pred = pred / (np.linalg.norm(pred, axis=-1, keepdims=True) + 1e-7)
-            eps = 1e-7
-            dot_product = np.clip(np.sum(unit_label * unit_pred, axis=-1), a_min=-1+eps, a_max=1-eps)
-            dot_product[dot_product != dot_product] = 0  # Remove NaNs
-        except Exception as e:
-            print(e)
-            breakpoint()
+    unit_label = gt / (np.linalg.norm(gt, axis=-1, keepdims=True) + 1e-7)
+    unit_pred = pred / (np.linalg.norm(pred, axis=-1, keepdims=True) + 1e-7)
+    eps = 1e-7
+    dot_product = np.clip(np.sum(unit_label * unit_pred, axis=-1), a_min=-1+eps, a_max=1-eps)
+    dot_product[dot_product != dot_product] = 0  # Remove NaNs
     return np.arccos(dot_product)
 
 def coutn(pred, gt):
@@ -101,12 +96,12 @@ SEG_METRICS = {'TP': tp, 'TN': tn, 'FP': fp, 'FN': fn}
 
 def metrics(pred_flow, pred_dynamic, gt, classes, dynamic, close, valid, object_classes):
     results = []
-    pred_flow = pred_flow[valid]
-    pred_dynamic = pred_dynamic[valid]
-    gt = gt[valid]
-    classes = classes[valid]
-    dynamic = dynamic[valid]
-    close = close[valid]
+    pred_flow = pred_flow[valid].astype(np.float64)
+    pred_dynamic = pred_dynamic[valid].astype(bool)
+    gt = gt[valid].astype(np.float64)
+    classes = classes[valid].astype(bool)
+    dynamic = dynamic[valid].astype(bool)
+    close = close[valid].astype(bool)
     
     for cls, class_idxs in object_classes.items():
         class_mask = classes == class_idxs[0]
