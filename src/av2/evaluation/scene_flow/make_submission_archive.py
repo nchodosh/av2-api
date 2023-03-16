@@ -5,6 +5,8 @@ import argparse
 import pandas as pd
 from rich.progress import track
 from typing import Dict
+import numpy as np
+
 
 def validate(submission_root: Path, fmt: Dict[str, int]):
     for filename in track(fmt.keys(), description = 'Validating...'):
@@ -13,10 +15,12 @@ def validate(submission_root: Path, fmt: Dict[str, int]):
             raise FileNotFoundError(f'{str(input_file)} not found in submission directory')
         pred = pd.read_feather(input_file)
 
-        if ('flow_tx_m' not in pred.columns or
-            'flow_ty_m' not in pred.columns or
-            'flow_tz_m' not in pred.columns):
-            raise ValueError(f'{str(input_file)} does not contain the correct columns')
+        cols = ['flow_tx_m', 'flow_ty_m', 'flow_tz_m']
+        for c in cols:
+            if c not in pred.columns:
+                raise ValueError(f'{str(input_file)} does not contain {c}')
+            if pred[c].dtype != np.float16:
+                raise ValueError(f'{str(input_file)} column {c} should be float16 but is {pred[c].dtype}')
 
         if len(pred.columns) > 3:
             raise ValueError(f'{str(input_file)} contains extra columns')

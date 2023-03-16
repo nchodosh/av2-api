@@ -14,7 +14,7 @@ if __name__ == '__main__':
     parser.add_argument('data_root', type=str,
                         help='root/path/to/data')
     parser.add_argument('--name', type=str, default='av2',
-                        help='the data should be located in <data_root>/<name>/sensor/<split>')
+                        help='the data should be located in <data_root>/<name>/sensor/<split> (default: av2)')
 
     args = parser.parse_args()
 

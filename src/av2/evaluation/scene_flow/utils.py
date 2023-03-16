@@ -25,5 +25,5 @@ def write_output_file(flow: np.ndarray, sweep_uuid: Tuple[str, int], output_dir:
     output_log_dir = output_dir / sweep_uuid[0]
     output_log_dir.mkdir(exist_ok=True, parents=True)
 
-    output = pd.DataFrame(flow, columns=['flow_tx_m', 'flow_ty_m', 'flow_tz_m'])
+    output = pd.DataFrame(flow.astype(np.float16), columns=['flow_tx_m', 'flow_ty_m', 'flow_tz_m'])
     output.to_feather(output_log_dir / f'{sweep_uuid[1]}.feather')
