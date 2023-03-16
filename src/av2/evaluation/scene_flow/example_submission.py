@@ -3,6 +3,7 @@ from av2.evaluation.scene_flow.utils import get_eval_subset, get_eval_point_mask
 import argparse
 from rich.progress import track
 from pathlib import Path
+import numpy as np
 
 
 if __name__ == '__main__':
@@ -31,5 +32,6 @@ if __name__ == '__main__':
         pc1 = sweep_0.lidar.dataframe[['x', 'y', 'z']].to_numpy()[mask]
         pc1_rigid = flow.ego_motion.transform_point_cloud(pc1)
         rigid_flow = pc1_rigid - pc1
+        dynamic = np.zeros(len(rigid_flow), dtype=bool)
 
-        write_output_file(rigid_flow, sweep_0.sweep_uuid, output_root)
+        write_output_file(rigid_flow, dynamic, sweep_0.sweep_uuid, output_root)

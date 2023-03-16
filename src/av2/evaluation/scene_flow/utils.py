@@ -21,9 +21,12 @@ def get_eval_point_mask(datum: Tuple[Sweep, Sweep, Flow]):
     return (is_close & ~datum[0].is_ground).astype(bool)
                                 
 
-def write_output_file(flow: np.ndarray, sweep_uuid: Tuple[str, int], output_dir: Path):
+def write_output_file(flow: np.ndarray, dynamic: np.ndarray, sweep_uuid: Tuple[str, int], output_dir: Path):
     output_log_dir = output_dir / sweep_uuid[0]
     output_log_dir.mkdir(exist_ok=True, parents=True)
-
-    output = pd.DataFrame(flow.astype(np.float16), columns=['flow_tx_m', 'flow_ty_m', 'flow_tz_m'])
+    fx = flow[:, 0].astype(np.float16)
+    fy = flow[:, 1].astype(np.float16)
+    fz = flow[:, 2].astype(np.float16)
+    output = pd.DataFrame({'flow_tx_m': fx, 'flow_ty_m': fy, 'flow_tz_m': fz,
+                           'dynamic': dynamic.astype(bool)})
     output.to_feather(output_log_dir / f'{sweep_uuid[1]}.feather')

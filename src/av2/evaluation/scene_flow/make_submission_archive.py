@@ -15,14 +15,18 @@ def validate(submission_root: Path, fmt: Dict[str, int]):
             raise FileNotFoundError(f'{str(input_file)} not found in submission directory')
         pred = pd.read_feather(input_file)
 
-        cols = ['flow_tx_m', 'flow_ty_m', 'flow_tz_m']
+        cols = ['flow_tx_m', 'flow_ty_m', 'flow_tz_m', 'dynamic']
         for c in cols:
             if c not in pred.columns:
                 raise ValueError(f'{str(input_file)} does not contain {c}')
-            if pred[c].dtype != np.float16:
-                raise ValueError(f'{str(input_file)} column {c} should be float16 but is {pred[c].dtype}')
+            if c == 'dynamic':
+                if pred[c].dtype != bool:
+                    raise ValueError(f'{str(input_file)} column {c} should be bool but is {pred[c].dtype}')
+            else:
+                if pred[c].dtype != np.float16:
+                    raise ValueError(f'{str(input_file)} column {c} should be float16 but is {pred[c].dtype}')
 
-        if len(pred.columns) > 3:
+        if len(pred.columns) > 4:
             raise ValueError(f'{str(input_file)} contains extra columns')
 
         if len(pred) != fmt[filename]:

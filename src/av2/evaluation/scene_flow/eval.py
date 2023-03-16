@@ -126,7 +126,7 @@ def metrics(pred_flow, pred_dynamic, gt, classes, dynamic, close, object_classes
                 results.append(result)
     return results
 
-def evaluate_iterator(annotation_file: Path, preds: Iterator[Tuple[str, Array, Array]]):
+def evaluate_iterator(annotations_root: Path, preds: Iterator[Tuple[str, Array, Array]]):
     results = []
     with h5py.File(annotation_file, 'r') as anno:
         for name, pred, pred_dynamic in tqdm(preds):
