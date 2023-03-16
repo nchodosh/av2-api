@@ -154,7 +154,7 @@ def results_to_dict(results_dataframe):
     output = {}
     grouped = results_dataframe.groupby(['Class', 'Motion', 'Distance'])
     for m in FLOW_METRICS.keys():
-        avg = grouped.apply(lambda x: (x.EPE * x.Count).sum() / x.Count.sum())
+        avg = grouped.apply(lambda x: (x[m] * x.Count).sum() / x.Count.sum())
         for segment in avg.index:
             if segment[0] == 'Background' and segment[1] == 'Dynamic':
                 continue
