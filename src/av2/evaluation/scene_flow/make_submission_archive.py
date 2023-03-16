@@ -44,8 +44,8 @@ if __name__ == '__main__':
                                      'package them into a zip file. Files should be in the format '
                                      'specified in SUBMISSION_FORMAT.md')
 
-    parser.add_argument('submission-root', type=str, help='location of the submission files')
-    parser.add_argument('--output-file', type=str, default='submission.zip',
+    parser.add_argument('submission_root', type=str, help='location of the submission files')
+    parser.add_argument('--output_file', type=str, default='submission.zip',
                         help='name of output archive file')
     args = parser.parse_args()
 
