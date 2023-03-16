@@ -74,6 +74,7 @@ def angle_error(pred, gt):
             dot_product = np.clip(np.sum(unit_label * unit_pred, axis=-1), a_min=-1+eps, a_max=1-eps)
             dot_product[dot_product != dot_product] = 0  # Remove NaNs
         except Exception as e:
+            print(e)
             breakpoint()
     return np.arccos(dot_product)
 
