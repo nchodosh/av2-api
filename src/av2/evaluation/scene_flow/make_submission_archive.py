@@ -6,7 +6,7 @@ import pandas as pd
 from rich.progress import track
 from typing import Dict
 import numpy as np
-
+import av2.evaluation.scene_flow.utils
 
 def validate(submission_root: Path, fmt: Dict[str, int]):
     for filename in track(fmt.keys(), description = 'Validating...'):
@@ -49,7 +49,8 @@ if __name__ == '__main__':
                         help='name of output archive file')
     args = parser.parse_args()
 
-    with open('test_submission_format.json', 'r') as f:
+    format_path = Path(av2.evaluation.scene_flow.utils.__file__).parent / 'test_submission_format.json'
+    with open(format_path, 'r') as f:
         fmt = json.load(f)
 
     submission_root = Path(args.submission_root)
