@@ -52,9 +52,9 @@ def accuracy(pred, gt, threshold):
     l2_norm = np.sqrt(np.sum((pred - gt) ** 2, axis=-1))
     gt_norm = np.sqrt(np.sum(gt * gt, axis=-1))
     relative_err = l2_norm / (gt_norm + 1e-20)
-    error_lt_5 = (l2_norm < threshold).bool()
-    relative_err_lt_5 = (relative_err < threshold).bool()
-    return  (error_lt_5 | relative_err_lt_5).float()
+    error_lt_5 = (l2_norm < threshold).astype(bool)
+    relative_err_lt_5 = (relative_err < threshold).astype(bool)
+    return  (error_lt_5 | relative_err_lt_5).astype(float)
 
 
 def accuracy_strict(pred, gt):
