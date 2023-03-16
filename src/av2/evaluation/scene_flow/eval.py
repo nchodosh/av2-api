@@ -192,4 +192,4 @@ if __name__ == '__main__':
     results = evaluate_directories(Path(args.annotations_root), Path(args.predictions_root))
 
     for metric in sorted(results):
-        print(f'{metric}: {results[metric]:.3d}')
+        print(f'{metric}: {results[metric]:.3f}')
