@@ -79,9 +79,9 @@ class SceneFlowDataloader(Dataset[Tuple[Sweep, Sweep, Flow]]):
     def __getitem__(self, index: int) -> Tuple[Sweep, Sweep, Flow]:
         backend_index = self.index_map[index]
         log = self.file_index.loc[index, ["log_id"]].item()
+        log_dir_path = log_map_dirpath = self.data_dir / log
         log_map_dirpath = self.data_dir / log / "map"
         avm = ArgoverseStaticMap.from_map_dir(log_map_dirpath, build_raster=True)
-
 
         sweep = Sweep.from_rust(self._backend.get(backend_index), avm=avm)
         next_sweep = Sweep.from_rust(self._backend.get(backend_index+1), avm=avm)
